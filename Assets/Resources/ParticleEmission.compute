@@ -1,0 +1,24 @@
+#pragma kernel particleEmission
+
+#include "ParticleCommon.cginc"
+#include "Random.cginc"
+
+float radius;
+float3 origin;
+float lifetimeMin;
+float lifetimeMax;
+float sizeMin;
+float sizeMax;
+int particleCount;
+
+[numthreads(256, 1, 1)]
+void particleEmission(uint3 id : SV_DispatchThreadID)
+{
+    if( id.x < particleCount && particleBuffer[id.x].life <= 0)
+    {
+		particleBuffer[id.x].life = lifetimeMin + (lifetimeMax - lifetimeMin) * rand3dTo1d(id, float3(85.946, 21.762, 9.878));
+        particleBuffer[id.x].velocity = float3(0, 0, 0);
+        particleBuffer[id.x].position = origin + randSphere(id) * radius;
+        particleBuffer[id.x].size = sizeMin + rand3dTo1d(id, float3(67.435, 14.596, 25.663)) * (sizeMax - sizeMin);
+    }
+}
