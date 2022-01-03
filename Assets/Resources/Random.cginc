@@ -1,8 +1,11 @@
 #include "Constants.cginc"
 
-float rand3dTo1d(float3 value, float3 dotDir = float3(12.9898, 78.233, 37.719)){
+float4 randomSeed;
+
+float rand3dTo1d(float3 value, float3 dotDir = float3(12.9898, 78.233, 37.719))
+{
 	float3 smallValue = sin(value);
-	float random = dot(smallValue, dotDir);
+	float random = dot(smallValue, cross(dotDir, randomSeed.xyz));
 	random = frac(sin(random) * 143758.5453);
 	return random * 2.0 - 1.0;
 }

@@ -1,8 +1,7 @@
 #pragma warning disable 0649
 
 using System.Runtime.InteropServices;
-using Unity.Collections;
-using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 using UnityEngine;
 
 public static class Vector3Extensions
@@ -37,6 +36,9 @@ public class ComputeParticles : MonoBehaviour
         public float lifetimeMax;
         public float sizeMin;
         public float sizeMax;
+        public Vector3 velocityDirection;
+        public float velocityMin;
+        public float velocityMax;
         [HideInInspector]
         public int particleCount;
         public float rate;
@@ -62,6 +64,7 @@ public class ComputeParticles : MonoBehaviour
     private int _simulationShaderKernelID;
 
     public Material material;
+    MaterialPropertyBlock _materialProperties;
     private Mesh _mesh = null;
 
     ComputeBuffer _particles;
@@ -74,6 +77,8 @@ public class ComputeParticles : MonoBehaviour
     private float _age = 0;
     private float _targetAge = 0;
 
+    public Color color = new Color(1.0f, 1.0f, 1.0f);
+
     int maxParticleCount
     {
         get
@@ -84,7 +89,7 @@ public class ComputeParticles : MonoBehaviour
 
     private void OnValidate()
     {
-        Reinitialize();
+        Initialize();
         Debug.Assert(_emissionShader != null, "The emission compute shader must be set.");
         Debug.Assert(_simulationShader != null, "The simulation compute shader must be set.");
         Debug.Assert(material != null, "A material to render the particles must be supplied.");
@@ -108,6 +113,7 @@ public class ComputeParticles : MonoBehaviour
     private void InitializeMesh()
     {
         _mesh = new Mesh();
+        _mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         var vertexCount = maxParticleCount * 4;
         var indicesCount = maxParticleCount * 6;
 
@@ -118,12 +124,13 @@ public class ComputeParticles : MonoBehaviour
         // Clockwise winding
         for (int i = 0; i < maxParticleCount; ++i)
         {
-            tris[i * 6 + 0] = i * 4;
+            tris[i * 6 + 0] = i * 4 + 0;
             tris[i * 6 + 1] = i * 4 + 1;
             tris[i * 6 + 2] = i * 4 + 2;
+
             tris[i * 6 + 3] = i * 4 + 2;
             tris[i * 6 + 4] = i * 4 + 3;
-            tris[i * 6 + 5] = i * 4;
+            tris[i * 6 + 5] = i * 4 + 0;
         };
         _mesh.triangles = tris;
     }
@@ -132,38 +139,43 @@ public class ComputeParticles : MonoBehaviour
     {
         _particles = new ComputeBuffer(maxParticleCount, Marshal.SizeOf(new ParticleDef()));
 
-        _emissionShader = Resources.Load<ComputeShader>(_emissionShaderName);
+        _emissionShader = Instantiate(Resources.Load<ComputeShader>(_emissionShaderName));
         _emissionShaderKernelID = _emissionShader.FindKernel(_emissionKernalName);
-        _simulationShader = Resources.Load<ComputeShader>(_simulationShaderName);
+        _simulationShader = Instantiate(Resources.Load<ComputeShader>(_simulationShaderName));
         _simulationShaderKernelID = _simulationShader.FindKernel(_simulationKernalName);
 
         _emissionShader.SetBuffer(_emissionShaderKernelID, "particleBuffer", _particles);
         _simulationShader.SetBuffer(_simulationShaderKernelID, "particleBuffer", _particles);
-        material.SetBuffer("particleBuffer", _particles);
+
+        _materialProperties = new MaterialPropertyBlock();
+        _materialProperties.SetBuffer("particleBuffer", _particles);
 
         _batchSize = (int)Mathf.Ceil(((float)maxParticleCount) / ((float)_xThreadCount));
     }
 
     private void Initialize()
     {
+        TearDown();
         InitializeVariables();
         InitializeMesh();
         InitializeShaders();
         Update();
     }
 
-    private void Reinitialize()
-    {
-        TearDown();
-        Initialize();
-    }
-
     private void OnEnable()
     {
         Initialize();
+        Camera.onPreCull -= Draw;
+        Camera.onPreCull += Draw;
     }
 
     private void OnDisable()
+    {
+        TearDown();
+        Camera.onPreCull -= Draw;
+    }
+
+    void OnDestroy()
     {
         TearDown();
     }
@@ -175,6 +187,11 @@ public class ComputeParticles : MonoBehaviour
         particleSimulationProperties.deltaTime = deltaTime;
     }
 
+    private Vector4 GenerateRandomSeed()
+    {
+        return new Vector4(Random.Range(-1, 1), Random.Range(-1, 1), Random.Range(-1, 1), Random.Range(1000.0f, 9999999.0f));
+    }
+
     void _RunEmission()
     {
         _emissionShader.SetFloat("radius", particleEmissionProperties.radius);
@@ -183,7 +200,11 @@ public class ComputeParticles : MonoBehaviour
         _emissionShader.SetFloat("lifetimeMax", particleEmissionProperties.lifetimeMax);
         _emissionShader.SetFloat("sizeMin", particleEmissionProperties.sizeMin);
         _emissionShader.SetFloat("sizeMax", particleEmissionProperties.sizeMax);
+        _emissionShader.SetFloats("velocityDirection", transform.TransformDirection(particleEmissionProperties.velocityDirection).ToFloatBuffer());
+        _emissionShader.SetFloat("velocityMin", particleEmissionProperties.velocityMin);
+        _emissionShader.SetFloat("velocityMax", particleEmissionProperties.velocityMax);
         _emissionShader.SetInt("particleCount", (int)Mathf.Min(maxParticleCount, Mathf.Floor(_age * particleEmissionProperties.rate)));
+        _emissionShader.SetVector("randomSeed", GenerateRandomSeed());
 
         _emissionShader.Dispatch(_emissionShaderKernelID, _batchSize, 1, 1);
     }
@@ -193,6 +214,7 @@ public class ComputeParticles : MonoBehaviour
         _simulationShader.SetFloats("acceleration", particleSimulationProperties.acceleration.ToFloatBuffer());
         _simulationShader.SetFloat("fadeFactor", particleSimulationProperties.fadeFactor);
         _simulationShader.SetFloat("deltaTime", particleSimulationProperties.deltaTime);
+        _simulationShader.SetVector("randomSeed", GenerateRandomSeed());
 
         _simulationShader.Dispatch(_simulationShaderKernelID, _batchSize, 1, 1);
     }
@@ -213,8 +235,12 @@ public class ComputeParticles : MonoBehaviour
         }
     }
 
-    private void LateUpdate()
+    private void Draw(Camera camera)
     {
-        Graphics.DrawMesh(_mesh, Matrix4x4.identity, material, 0);
+        if (camera)
+        {
+            _materialProperties.SetColor("baseColor", color);
+            Graphics.DrawMesh(_mesh, Matrix4x4.identity, material, 0, camera, 0, _materialProperties);
+        }
     }
 }

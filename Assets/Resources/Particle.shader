@@ -63,9 +63,8 @@ Shader "Custom/Particle"
 
 				uint particleID = vertexID >> 2;
 				uint cornerID = vertexID % 4;
-
 				Particle p = particleBuffer[particleID];
-
+				
 				float4 viewSpacePos = mul(UNITY_MATRIX_V, float4(p.position, 1.0f));
 				float4 quadCornerPos = float4(viewSpacePos.xyz + Billboard[cornerID] * p.size * 1.0f, viewSpacePos.w);
 
