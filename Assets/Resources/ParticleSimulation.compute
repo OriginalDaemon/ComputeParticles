@@ -9,15 +9,8 @@ float deltaTime;
 [numthreads(256, 1, 1)]
 void particleSimulation(uint3 id : SV_DispatchThreadID)
 {
-	if (particleBuffer[id.x].life > 0.0)
-	{
-		particleBuffer[id.x].life -= deltaTime;
-		particleBuffer[id.x].velocity += acceleration * deltaTime;
-		particleBuffer[id.x].position += particleBuffer[id.x].velocity * deltaTime;
-		particleBuffer[id.x].size = max(min(particleBuffer[id.x].size, particleBuffer[id.x].life * fadeFactor), 0.001);
-	}
-	else
-	{
-		particleBuffer[id.x].size = 0.0;
-	}
+	particleBuffer[id.x].life -= deltaTime;
+	particleBuffer[id.x].velocity += acceleration * deltaTime;
+	particleBuffer[id.x].position += particleBuffer[id.x].velocity * deltaTime;
+	particleBuffer[id.x].size = max(min(particleBuffer[id.x].size, particleBuffer[id.x].life * fadeFactor), 0.0);
 }
